@@ -42,6 +42,7 @@ import qualified Text.Read as TR
 import qualified Frames.MapReduce as FMR
 
 import qualified Knit.Report as K
+import qualified System.Environment as Env
 
 FTH.declareColumn "Overlap" ''Double
 FTH.declareColumn "CongressionalPPL" ''Double
@@ -122,6 +123,9 @@ maxSLD_CDOverlaps = FL.foldM outerFldM
                 (FMR.makeRecsWithKeyM id $ FMR.ReduceFoldM $ const $ fmap (pure @[]) $ foldToFoldM innerFldM)
     innerFldM = fmap (fmap unCompareOverlap) $ FL.premap CompareOverlap FL.maximum
 
+overlapPath :: IO Text
+overlapPath = fromMaybe "data/" <$> (fmap (>>= BRCC.insureFinalSlash . toText) $ Env.lookupEnv "BR_DRA_DATA_DIR")
+
 -- overlaps along with congressionalPPL
 sldCDOverlaps :: (K.KnitEffects r, BRCC.CacheEffects r)
               => Map Text Bool
@@ -133,6 +137,7 @@ sldCDOverlaps :: (K.KnitEffects r, BRCC.CacheEffects r)
 sldCDOverlaps stateUpperOnlyMap stateSingleDistrictMap mapYear acsTableYear sa = do
   upperOnly <- K.knitMaybe ("sldCDOverlaps: " <> sa <> " missing from stateUpperOnlyMap") $ Map.lookup sa stateUpperOnlyMap
   singleCD <- K.knitMaybe ("sldCDOverlaps: " <> sa <> " missing from stateUpperOnlyMap") $ Map.lookup sa stateSingleDistrictMap
+  oPath <- K.liftKnit overlapPath
   case singleCD of
     True -> pure Nothing
     False -> do
@@ -153,7 +158,7 @@ sldCDOverlaps stateUpperOnlyMap stateSingleDistrictMap mapYear acsTableYear sa =
 
           overlappingSLDs cdn = do
             overlapsU <- overlapCollection (Set.singleton sa)
-                         (\x -> toString $ "data/districtOverlaps/" <> show mapYear <> "/" <> x <> "_SLDU" <> "_CD.csv") GT.StateUpper GT.Congressional
+                         (\x -> toString $ oPath <> "districtOverlaps/" <> show mapYear <> "/" <> x <> "_SLDU" <> "_CD.csv") GT.StateUpper GT.Congressional
             overlapsU' <- K.knitMaybe ("sldCDOverlap: Failed to find overlap data for upper chamber of " <> sa) $ Map.lookup sa overlapsU
             namedOverU <- overlappingSLDs' cdn overlapsU'
             let upperRes =  fmap (\(n, x) -> (GT.StateUpper, n, x)) namedOverU
@@ -161,7 +166,7 @@ sldCDOverlaps stateUpperOnlyMap stateSingleDistrictMap mapYear acsTableYear sa =
               True -> pure upperRes
               False -> do
                 overlapsL <- overlapCollection (Set.singleton sa)
-                             (\x -> toString $ "data/districtOverlaps/" <> show mapYear <> "/" <> x <> "_SLDL" <> "_CD.csv") GT.StateLower GT.Congressional
+                             (\x -> toString $ oPath <> "districtOverlaps/" <> show mapYear <> "/" <> x <> "_SLDL" <> "_CD.csv") GT.StateLower GT.Congressional
                 overlapsL' <- K.knitMaybe ("sldCDOverlap: Failed to find overlap data for lower chamber of " <> sa) $ Map.lookup sa overlapsL
                 namedOverL <- overlappingSLDs' cdn overlapsL'
                 pure $ upperRes <> fmap (\(n, x) -> (GT.StateLower, n, x)) namedOverL
